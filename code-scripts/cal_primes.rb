@@ -31,11 +31,12 @@
 #===========================================================
 # 以下是筛选法代码
 #===========================================================
+# 最大值不要超过1亿
 def prime max_number
 	nums = Array.new(max_number, 1)
 	nums[0], nums[1] = 0, 0
-	(4..max_number).step(2) { |n| nums[n] = 0 }
-	(3..max_number).step(2) do |n|
+	(4...max_number).step(2) { |n| nums[n] = 0 }
+	(3...max_number).step(2) do |n|
 		(n * 2...max_number).step(n) { |m| nums[m] = 0 } if (nums[n] == 1)
 	end
 	count = nums.count(1)
