@@ -1,9 +1,11 @@
+# coding:GBK
+
 #=INSTALL
 # 1. Install Ruby interpreter and Graphviz
 # 2. gem install ruby-graphviz
 #
 #=EXCUTION
-# ruby dependency.rb <input_file> [output.png]
+# ruby dependency.rb <input_file> [<output.png> [anything]]
 #
 #=EXAMPLE INPUT
 # a>b,c>d
@@ -12,6 +14,7 @@
 if ARGV[1]
 	require 'rubygems'
 	require 'graphviz'
+	require 'iconv'
 end
 require 'yaml'
 
@@ -19,7 +22,7 @@ DEPENDENCY_SPLITTOR = '>'
 PARALLEL_SPLITTOR = ','
 
 SCOPE_COLOR = {}
-IO.foreach('scope_color.yml') do |line| 
+File.open('scope_color.yml', 'r:GBK').each_line do |line|
 	scope = line.strip.split(':')
 	SCOPE_COLOR[scope[0].strip] = scope[1].strip
 end
@@ -76,13 +79,11 @@ class Graph
 
 	def add_dependency dependency
 		predessors = []
-		dependency.strip.split(DEPENDENCY_SPLITTOR).each do |node_names|
-			node_name_array = node_names.strip.split(PARALLEL_SPLITTOR).each do |name|
-				node_name = name.strip
+		dependency.strip.gsub(/\s/, '').split(DEPENDENCY_SPLITTOR).each do |node_names|
+			node_name_array = node_names.strip.split(PARALLEL_SPLITTOR).each do |node_name|
 				node = @node_map[node_name] ||= Node.new(node_name, predessors)
 				predessors.each { |predessor| node.add_predessor(predessor) unless node.predessors.include? predessor }
 			end
-			node_name_array.each_index {|idx| node_name_array[idx] = node_name_array[idx].strip}
 			predessors = @node_map.values.select { |node| node_name_array.include? node.name }
 		end
 	end
@@ -172,8 +173,8 @@ class Graph
 end
 
 module GraphVizHelper
-	def self.create_graph nodes
-		graph = GraphViz::new("dependency")
+	def self.create_graph nodes, parent = nil
+		graph = parent.nil? ? GraphViz::new('dependency') : parent.add_graph('dependency')
 		nodes.each do |node|
 			node.successors.each { |successor| create_edge get_graph_node(node.name, graph), get_graph_node(successor.name, graph), graph }
 		end
@@ -200,6 +201,15 @@ module GraphVizHelper
 	def self.get_node_color node_id
 		SCOPE_COLOR[Scope.get_sys_scope(node_id)] || 'lightpink'
 	end
+
+	def self.generate_map_symbol parent = nil
+		graph = parent.nil? ? GraphViz::new('symbol') : parent.add_graph('symbol')
+		Scope.get_all_scopes.each do |scope|
+			scope_name = Iconv.iconv('UTF-8', 'GBK', scope)
+			graph.add_nodes(scope_name, :style => 'filled', :fontname => 'SimSun', :color => (SCOPE_COLOR[scope] || 'lightpink'), :shape => 'box')
+		end
+		graph
+	end
 end
 
 module GraphTraverser
@@ -225,10 +235,10 @@ module Scope
 	SYS_SCOPE = {}
 
 	def self.load_scope filename = 'sys_scope.txt'
-		IO.foreach('sys_scope.txt') do |line| 
+		File.open(filename, 'r:GBK').each_line do |line| 
 			sys, scope = line.strip.split /\s+/
-			SYS_SCOPE[sys] = scope
-		end	
+			SYS_SCOPE[sys] = scope			
+		end 
 	end
 	
 	def self.is_same_scope sys1, sys2
@@ -246,10 +256,14 @@ module Scope
 			end
 		end
 	end
+
+	def self.get_all_scopes
+		SYS_SCOPE.values
+	end
 end
 
 graph = Graph.new
-IO.foreach(ARGV[0]) { |line| graph.add_dependency line }
+File.open(ARGV[0], 'r:GBK').each_line { |line| graph.add_dependency line }
 unless graph.has_circle
 	Scope.load_scope
 	Scope.check_scope graph.nodes
@@ -257,6 +271,10 @@ unless graph.has_circle
 		graph.remove_redundancy_edges
 		graphviz_graph = GraphVizHelper.create_graph graph.nodes
 		graphviz_graph.output(:png => ARGV[1])
+		if (ARGV[2])
+			symbol = GraphVizHelper.generate_map_symbol
+			symbol.output(:png => 'symbol.png')
+		end
 	else
 		roots = graph.roots
 		graph.remove_redundancy_edges
