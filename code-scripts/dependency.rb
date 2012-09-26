@@ -9,8 +9,10 @@
 # a>b,c>d
 # b>e
 
-require 'rubygems'
-require 'graphviz'
+if ARGV[1]
+	require 'rubygems'
+	require 'graphviz'
+end
 
 DEPENDENCY_SPLITTOR = '>'
 PARALLEL_SPLITTOR = ','
@@ -81,7 +83,7 @@ class Graph
 		nodes.each do |node|
 			node.successors.dup.each do |successor|
 				node.successors.select { |element| element != successor }.each do |element|
-			node.remove_successor(successor) if element.has_path_to successor
+					node.remove_successor(successor) if element.has_path_to successor
 				end
 			end
 		end
@@ -91,7 +93,7 @@ class Graph
 				node.predessors.each do |predessor|
 					predessor.successors.select { |element| element != node }.each do |element|
 						node.remove_successor(successor) if element.has_path_to successor
-					end
+					end 
 				end
 			end
 		end
@@ -180,7 +182,11 @@ module GraphVizHelper
 	def self.create_edge node1, node2, graph
 		exist = false
 		graph.each_edge { |edge| exist ||= (edge.node_one == node1.id && edge.node_two == node2.id) }
-		graph.add_edges(node1, node2) unless exist
+		graph.add_edges(node1, node2, :color => get_color(Scope.is_same_scope(node1.id, node2.id))) unless exist
+	end
+
+	def self.get_color is_same_scope = true
+		is_same_scope ? "black" : "red"
 	end
 end
 
@@ -203,9 +209,34 @@ module GraphTraverser
 	end
 end
 
+module Scope
+	SYS_SCOPE = {}
+
+	def self.load_scope filename = 'sys_scope.txt'
+		IO.foreach('sys_scope.txt') do |line| 
+			sys, scope = line.strip.split /\s+/
+			SYS_SCOPE[sys] = scope
+		end	
+	end
+	
+	def self.is_same_scope sys1, sys2
+		SYS_SCOPE[sys1] == SYS_SCOPE[sys2]
+	end
+	
+	def self.check_scope nodes
+		nodes.each do |node|
+			node.successors.each do |successor|
+				puts "WARNING! #{node} and #{successor} are not in the same scope!" unless is_same_scope(node.name, successor.name)
+			end
+		end
+	end
+end
+
 graph = Graph.new
 IO.foreach(ARGV[0]) { |line| graph.add_dependency line }
 unless graph.has_circle
+	Scope.load_scope
+	Scope.check_scope graph.nodes
 	if ARGV[1]
 		graph.remove_redundancy_edges
 		graphviz_graph = GraphVizHelper.create_graph graph.nodes
