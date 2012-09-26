@@ -13,9 +13,16 @@ if ARGV[1]
 	require 'rubygems'
 	require 'graphviz'
 end
+require 'yaml'
 
 DEPENDENCY_SPLITTOR = '>'
 PARALLEL_SPLITTOR = ','
+
+SCOPE_COLOR = {}
+IO.foreach('scope_color.yml') do |line| 
+	scope = line.strip.split(':')
+	SCOPE_COLOR[scope[0].strip] = scope[1].strip
+end
 
 class Node
 	attr_accessor :predessors, :successors
@@ -75,6 +82,7 @@ class Graph
 				node = @node_map[node_name] ||= Node.new(node_name, predessors)
 				predessors.each { |predessor| node.add_predessor(predessor) unless node.predessors.include? predessor }
 			end
+			node_name_array.each_index {|idx| node_name_array[idx] = node_name_array[idx].strip}
 			predessors = @node_map.values.select { |node| node_name_array.include? node.name }
 		end
 	end
@@ -176,17 +184,21 @@ module GraphVizHelper
 	def self.get_graph_node node_id, graph
 		node = nil
 		graph.node_attrs { |graph_node| node = graph_node if graph_node.id == node_id }
-		node ||= graph.add_nodes(node_id)
+		node ||= graph.add_nodes(node_id, :style => 'filled', :color => get_node_color(node_id))
 	end
 	
 	def self.create_edge node1, node2, graph
 		exist = false
 		graph.each_edge { |edge| exist ||= (edge.node_one == node1.id && edge.node_two == node2.id) }
-		graph.add_edges(node1, node2, :color => get_color(Scope.is_same_scope(node1.id, node2.id))) unless exist
+		graph.add_edges(node1, node2, :color => get_edge_color(Scope.is_same_scope(node1.id, node2.id))) unless exist
 	end
 
-	def self.get_color is_same_scope = true
+	def self.get_edge_color is_same_scope = true
 		is_same_scope ? "black" : "red"
+	end
+
+	def self.get_node_color node_id
+		SCOPE_COLOR[Scope.get_sys_scope(node_id)] || 'lightpink'
 	end
 end
 
@@ -221,6 +233,10 @@ module Scope
 	
 	def self.is_same_scope sys1, sys2
 		SYS_SCOPE[sys1] == SYS_SCOPE[sys2]
+	end
+
+	def self.get_sys_scope sys
+		SYS_SCOPE[sys]
 	end
 	
 	def self.check_scope nodes
