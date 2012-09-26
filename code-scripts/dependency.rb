@@ -20,12 +20,7 @@ require 'yaml'
 
 DEPENDENCY_SPLITTOR = '>'
 PARALLEL_SPLITTOR = ','
-
-SCOPE_COLOR = {}
-File.open('scope_color.yml', 'r:GBK').each_line do |line|
-	scope = line.strip.split(':')
-	SCOPE_COLOR[scope[0].strip] = scope[1].strip
-end
+KEY_NODE_THRESHOLD = 5
 
 class Node
 	attr_accessor :predessors, :successors
@@ -170,22 +165,32 @@ class Graph
 
 		return false
 	end
+
+	def key_nodes
+		key_nodes = []
+		@node_map.values.each { |node| key_nodes << node if (node.predessors.size >= KEY_NODE_THRESHOLD || node.successors.size >= KEY_NODE_THRESHOLD) }
+		key_nodes
+	end
 end
 
 module GraphVizHelper
-	def self.create_graph nodes, parent = nil
+	def self.create_graph nodes, key_nodes = [], parent = nil
 		graph = parent.nil? ? GraphViz::new('dependency') : parent.add_graph('dependency')
 		nodes.each do |node|
-			node.successors.each { |successor| create_edge get_graph_node(node.name, graph), get_graph_node(successor.name, graph), graph }
+			node.successors.each { |successor| create_edge get_graph_node(node.name, graph, key_nodes.include?(node)), get_graph_node(successor.name, graph), graph }
 		end
 		graph
 	end
 
 	private
-	def self.get_graph_node node_id, graph
+	def self.get_graph_node node_id, graph, key_node = false
 		node = nil
 		graph.node_attrs { |graph_node| node = graph_node if graph_node.id == node_id }
-		node ||= graph.add_nodes(node_id, :style => 'filled', :color => get_node_color(node_id))
+		if key_node
+			node ||= graph.add_nodes(node_id, :style => 'filled,bold', :color => "red", :fillcolor => get_node_color(node_id))
+		else
+			node ||= graph.add_nodes(node_id, :style => 'filled', :color => get_node_color(node_id))
+		end
 	end
 	
 	def self.create_edge node1, node2, graph
@@ -199,14 +204,14 @@ module GraphVizHelper
 	end
 
 	def self.get_node_color node_id
-		SCOPE_COLOR[Scope.get_sys_scope(node_id)] || 'lightpink'
+		Scope.get_scope_color(Scope.get_sys_scope(node_id))
 	end
 
 	def self.generate_map_symbol parent = nil
 		graph = parent.nil? ? GraphViz::new('symbol') : parent.add_graph('symbol')
-		Scope.get_all_scopes.each do |scope|
+		Scope.all_scopes.each do |scope|
 			scope_name = Iconv.iconv('UTF-8', 'GBK', scope)
-			graph.add_nodes(scope_name, :style => 'filled', :fontname => 'SimSun', :color => (SCOPE_COLOR[scope] || 'lightpink'), :shape => 'box')
+			graph.add_nodes(scope_name, :style => 'filled', :fontname => 'SimSun', :color => Scope.get_scope_color(scope), :shape => 'box')
 		end
 		graph
 	end
@@ -233,6 +238,14 @@ end
 
 module Scope
 	SYS_SCOPE = {}
+	SCOPE_COLOR = {}
+
+	def self.load_scope_color filename = 'scope_color.yml'
+		File.open(filename, 'r:GBK').each_line do |line|
+			sys, color = line.strip.gsub(/\s/, '').split(':')
+			SCOPE_COLOR[sys] = color
+		end
+	end
 
 	def self.load_scope filename = 'sys_scope.txt'
 		File.open(filename, 'r:GBK').each_line do |line| 
@@ -248,6 +261,10 @@ module Scope
 	def self.get_sys_scope sys
 		SYS_SCOPE[sys]
 	end
+
+	def self.get_scope_color scope
+		SCOPE_COLOR[scope] || 'lightpink'
+	end
 	
 	def self.check_scope nodes
 		nodes.each do |node|
@@ -257,7 +274,7 @@ module Scope
 		end
 	end
 
-	def self.get_all_scopes
+	def self.all_scopes
 		SYS_SCOPE.values
 	end
 end
@@ -266,10 +283,10 @@ graph = Graph.new
 File.open(ARGV[0], 'r:GBK').each_line { |line| graph.add_dependency line }
 unless graph.has_circle
 	Scope.load_scope
-	Scope.check_scope graph.nodes
+	Scope.load_scope_color
 	if ARGV[1]
 		graph.remove_redundancy_edges
-		graphviz_graph = GraphVizHelper.create_graph graph.nodes
+		graphviz_graph = GraphVizHelper.create_graph graph.nodes, graph.key_nodes
 		graphviz_graph.output(:png => ARGV[1])
 		if (ARGV[2])
 			symbol = GraphVizHelper.generate_map_symbol
@@ -278,6 +295,8 @@ unless graph.has_circle
 	else
 		roots = graph.roots
 		graph.remove_redundancy_edges
+		graph.key_nodes.each { |node| puts "#{node} is KEY NODE!"}
+		Scope.check_scope graph.nodes
 		GraphTraverser.print_nodes roots
 	end
 end
